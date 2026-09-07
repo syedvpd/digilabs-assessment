@@ -240,9 +240,12 @@ button, a { touch-action: manipulation; }
 .field { display: grid; gap: 8px; }
 .field.full { grid-column: 1 / -1; }
 .field > span { color: rgba(255,255,255,.42); font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: .14em; }
-.field input, .field select { width: 100%; min-height: 56px; border: 1px solid rgba(255,255,255,.13); border-radius: 16px; outline: none; background: rgba(0,0,0,.13); color: #fff; padding: 0 16px; transition: border-color .25s ease, background .25s ease, box-shadow .25s ease; }
+.field input, .field select { width: 100%; min-height: 56px; border: 1px solid rgba(255,255,255,.13); border-radius: 16px; outline: none; background: rgba(0,0,0,.13); color: #fff; padding: 0 16px; transition: border-color .25s ease, background .25s ease, box-shadow .25s ease; font-size: 14px; }
 .field input::placeholder { color: rgba(255,255,255,.22); }
-.field select { appearance: none; }
+.field select { appearance: none; -webkit-appearance: none; -moz-appearance: none; cursor: pointer; padding-right: 44px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.45)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 18px center; }
+.field select:has(option[value=""]:checked) { color: rgba(255,255,255,.38); }
+.field select option { background-color: #0b1119; color: #ffffff; padding: 12px 16px; font-size: 14px; }
+.field select option[value=""] { color: rgba(255,255,255,.45); }
 .field input:focus, .field select:focus { border-color: rgba(156,247,216,.65); background: rgba(0,0,0,.2); box-shadow: 0 0 0 4px rgba(156,247,216,.07); }
 .field input[aria-invalid="true"], .field select[aria-invalid="true"] { border-color: #ff9e9e; }
 .field small, .form-error { margin: 0; color: #ffb0b0; font-size: 10px; }
