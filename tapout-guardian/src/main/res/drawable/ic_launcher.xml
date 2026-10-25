@@ -1,0 +1,5 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- A door with an exit arrow: "tap out" -->
+    <path android:fillColor="#FFFFFF" android:pathData="M34,30 h26 v8 h-18 v32 h18 v8 h-26 z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M62,44 l16,10 l-16,10 v-6 h-12 v-8 h12 z"/>
+</vector>
