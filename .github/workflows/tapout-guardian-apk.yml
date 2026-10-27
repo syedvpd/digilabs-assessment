@@ -1,0 +1,118 @@
+name: TapOut Guardian APKs
+
+# Builds, tests, signature-verifies and uploads the debug + release APKs of tapout-guardian/.
+# Runs for the redesign branch, for pull requests that touch the app, and on demand. It never runs on, or pushes to, main.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["tapout-guardian-coral-redesign"]
+    paths: ["tapout-guardian/**", ".github/workflows/tapout-guardian-apk.yml"]
+  pull_request:
+    paths: ["tapout-guardian/**", ".github/workflows/tapout-guardian-apk.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tapout-guardian-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash          # -eo pipefail: a failing gradle/verify step is not hidden by `| tee`
+        working-directory: tapout-guardian
+    env:
+      # Same toolchain the project is developed with: Ubuntu's aapt2/dx/zipalign/apksigner (installed below)
+      # plus the API 34 android.jar from the runner's Android SDK.
+      ANDROID_BUILD_TOOLS: /usr/lib/android-sdk/build-tools/debian
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle 8.14.3
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Install Android command-line build tools (aapt2, dx, zipalign, apksigner)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aapt dalvik-exchange zipalign apksigner zip
+          ls "$ANDROID_BUILD_TOOLS"
+
+      - name: Ensure Android platform 34 (android.jar)
+        run: |
+          : "${ANDROID_HOME:=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -f "$ANDROID_HOME/platforms/android-34/android.jar" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-34" >/dev/null
+          fi
+          test -f "$ANDROID_HOME/platforms/android-34/android.jar"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_JAR=$ANDROID_HOME/platforms/android-34/android.jar" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: gradle --no-daemon test 2>&1 | tee ../gradle-test.log
+
+      - name: Build debug + release APKs
+        run: gradle --no-daemon assembleAll 2>&1 | tee ../gradle-build.log
+
+      - name: Collect APKs
+        run: |
+          mkdir -p ../out
+          cp build/outputs/apk/debug/tapout-guardian-debug.apk build/outputs/apk/release/tapout-guardian-release.apk ../out/
+
+      - name: Verify signatures, package name, version and debuggable flags
+        run: bash scripts/verify-apks.sh ../out 2>&1 | tee ../verify.log
+
+      - name: Checksums and summary
+        run: |
+          (cd ../out && sha256sum *.apk | tee SHA256SUMS.txt)
+          {
+            echo "### TapOut Guardian APKs"
+            echo '```'; (cd ../out && sha256sum *.apk); echo '```'
+            echo "Release APK is signed with an **ephemeral CI test key** (fresh install only; not an upgrade or Play Store key)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapout-guardian-debug-apk
+          path: |
+            out/tapout-guardian-debug.apk
+            out/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release APK (ephemeral test signing key)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapout-guardian-release-apk
+          path: |
+            out/tapout-guardian-release.apk
+            out/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload test report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tapout-guardian-test-and-build-logs
+          path: |
+            tapout-guardian/build/reports/tests/test
+            tapout-guardian/build/test-results/test
+            gradle-test.log
+            gradle-build.log
+            verify.log
+          if-no-files-found: ignore
+          retention-days: 14

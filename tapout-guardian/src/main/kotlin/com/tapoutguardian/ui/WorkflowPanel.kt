@@ -196,7 +196,7 @@ class WorkflowPanel(private val a: Activity, private val g: Graph, private val s
     private fun primary(t: String, h: Int, sp: Float, f: () -> Unit) = Ui.button(a, t, sc.primaryBg, sc.primaryFg, heightDp = h, sp = sp) { f() }
     private fun outline(t: String, f: () -> Unit) = Ui.button(a, t, Color.TRANSPARENT, sc.fg, stroke = sc.outline, heightDp = 60) { f() }
     private fun steps(vararg lines: String): LinearLayout {
-        val box = Ui.card(a, if (sc === Scheme.DARK) Color.argb(40, 255, 255, 255) else Color.parseColor("#F3F4F6"))
+        val box = Ui.card(a, if (sc === Scheme.DARK) Color.argb(40, 255, 255, 255) else Ui.CORAL_SOFT)
         lines.forEach { box.addView(Ui.label(a, it, 16f, sc.fg), Ui.lp(a, 2, 2)) }
         return box
     }

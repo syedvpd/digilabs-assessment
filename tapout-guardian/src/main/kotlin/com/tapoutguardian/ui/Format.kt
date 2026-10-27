@@ -16,6 +16,8 @@ object Format {
     fun time(ms: Long): String = fmt("h:mm a").format(Instant.ofEpochMilli(ms))
     fun timeSeconds(ms: Long): String = fmt("h:mm:ss a").format(Instant.ofEpochMilli(ms))
     fun dateTime(ms: Long): String = fmt("EEE d MMM, h:mm a").format(Instant.ofEpochMilli(ms))
+    fun dayLine(ms: Long): String = fmt("EEEE, d MMM yyyy").format(Instant.ofEpochMilli(ms))
+    fun hourOfDay(ms: Long): Int = Instant.ofEpochMilli(ms).atZone(zone()).hour
     fun date(ms: Long): String = fmt("EEE d MMM yyyy").format(Instant.ofEpochMilli(ms))
 
     fun minuteOfDay(m: Int): String = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).format(java.time.LocalTime.of(m / 60, m % 60))

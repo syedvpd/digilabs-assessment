@@ -1,5 +1,5 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- A door with an exit arrow: "tap out" -->
-    <path android:fillColor="#FFFFFF" android:pathData="M34,30 h26 v8 h-18 v32 h18 v8 h-26 z"/>
-    <path android:fillColor="#FFFFFF" android:pathData="M62,44 l16,10 l-16,10 v-6 h-12 v-8 h12 z"/>
+    <!-- shield with a check mark -->
+    <path android:fillColor="#FFFFFF" android:pathData="M54,24 L78,33 V54 C78,69 68,79 54,84 C40,79 30,69 30,54 V33 Z"/>
+    <path android:fillColor="#D2402E" android:pathData="M46,55 L51.5,60.5 L63,48.5 L66,51.5 L51.5,66.5 L43,58 Z"/>
 </vector>

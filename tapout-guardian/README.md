@@ -57,6 +57,17 @@ The `core` package has no Android dependency, so porting the UI to Compose/Room 
 
 ---
 
+## v1.1 redesign (coral + warm white)
+
+Soft warm-white surfaces, rounded elevated cards, charcoal text, coral-red primary actions and green used **only** for success; no navy.
+Dashboard: greeting, large clock, a ring-style action button (it only navigates to the screen that owns the real confirmation), Reminder / Confirmed / Verified times, a Mon-Sun week strip with status dots, today's status, next reminders, morning check-in and system readiness. Pill navigation: Dashboard · Confirm · Verify · Checks (history); Settings (schedule, escalation, sound, vibration, reliability, attendance app, kiosk) from the header.
+First launch shows a short welcome/splash that explains permissions. No accounts or backend: everything stays local.
+The engine, scheduling, confirmation guards and history are unchanged; `core/Presentation.kt` derives the ring/week dots from the persisted record and is unit-tested so success can only appear after the second confirmation is committed.
+
+## CI (GitHub Actions)
+
+`.github/workflows/tapout-guardian-apk.yml` runs the unit tests, builds both APKs, runs `scripts/verify-apks.sh` (apksigner, package, version, debuggable flag) and uploads `tapout-guardian-debug-apk`, `tapout-guardian-release-apk` and logs as artifacts. CI signs with an **ephemeral test key** generated per run (fresh install only; upgrades need the same key; not a Play Store key). No keystore or password is stored in Git.
+
 ## What happens, step by step
 
 **9:00 AM** – a distinct notification "Have you completed your attendance tap-in?" with *Open attendance app* (if configured) and *I've tapped in*. It is independent from the evening workflow, never repeats, and acknowledging it can never complete the evening.

@@ -17,24 +17,37 @@ import android.provider.Settings as AndroidSettings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.tapoutguardian.R
 import com.tapoutguardian.android.Graph
 import com.tapoutguardian.android.HomeData
 import com.tapoutguardian.android.Ids
 import com.tapoutguardian.core.*
 
 class MainActivity : Activity() {
-    private enum class Tab(val title: String) { DASHBOARD("Dashboard"), CONFIRM("Confirm"), VERIFY("Verify"), CHECKS("Checks") }
+    private enum class Tab(val title: String, val icon: Int) {
+        DASHBOARD("Dashboard", R.drawable.ic_nav_home), CONFIRM("Confirm tap-out", R.drawable.ic_nav_confirm),
+        VERIFY("Verify", R.drawable.ic_nav_verify), CHECKS("Checks and history", R.drawable.ic_nav_checks)
+    }
 
     private lateinit var g: Graph
     private lateinit var content: LinearLayout
     private lateinit var scroll: ScrollView
-    private val nav = mutableMapOf<Tab, android.widget.Button>()
+    private val navViews = mutableMapOf<Tab, ImageView>()
+    private var greetingView: TextView? = null
+    private var subtitleView: TextView? = null
+    private var timeView: TextView? = null
+    private var ring: RingButton? = null
+    private lateinit var frame: FrameLayout
     private var tab = Tab.DASHBOARD
     private var inSettings = false
     private lateinit var panel: WorkflowPanel
@@ -53,24 +66,49 @@ class MainActivity : Activity() {
         g = Graph.get(this)
         panel = WorkflowPanel(this, g, Scheme.LIGHT) { reload() }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Ui.PAGE) }
-        root.addView(Ui.label(this, "TapOut Guardian", 22f, Ui.INK, true).apply {
-            setPadding(Ui.dp(this@MainActivity, 16), Ui.dp(this@MainActivity, 14), Ui.dp(this@MainActivity, 16), Ui.dp(this@MainActivity, 10))
-            setBackgroundColor(Color.WHITE)
-            contentDescription = "TapOut Guardian, attendance tap-out enforcement"
-        })
+        // header: greeting + settings
+        greetingView = Ui.label(this, "", 26f, Ui.INK, true)
+        subtitleView = Ui.label(this, "", 14f, Ui.MUTED)
+        val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(greetingView); addView(subtitleView) }
+        val gear = ImageView(this).apply {
+            setImageResource(R.drawable.ic_tune); setColorFilter(Ui.INK)
+            val pad = Ui.dp(this@MainActivity, 12); setPadding(pad, pad, pad, pad)
+            background = Ui.circle(this@MainActivity, Color.WHITE, 48); elevation = Ui.dp(this@MainActivity, 3).toFloat()
+            contentDescription = "Settings"; isClickable = true
+            setOnClickListener { inSettings = true; render() }
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            val p = Ui.dp(this@MainActivity, 20); setPadding(p, Ui.dp(this@MainActivity, 18), p, Ui.dp(this@MainActivity, 6))
+            addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(gear, LinearLayout.LayoutParams(Ui.dp(this@MainActivity, 48), Ui.dp(this@MainActivity, 48)))
+        }
+        root.addView(header)
         content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false
             val p = Ui.dp(this@MainActivity, 16); setPadding(p, p, p, p)
         }
-        scroll = ScrollView(this).apply { addView(content) }
+        scroll = ScrollView(this).apply { clipChildren = false; clipToPadding = false; addView(content) }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.WHITE) }
-        Tab.values().forEach { t ->
-            val b = Ui.button(this, t.title, Color.TRANSPARENT, Ui.INK, heightDp = 56, sp = 15f) { tab = t; inSettings = false; render() }
-            nav[t] = b; bar.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
+        // floating pill navigation (icons only, like the reference), with accessible labels
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            val v = Ui.dp(this@MainActivity, 8); setPadding(v, v, v, v)
+            background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = Ui.dp(this@MainActivity, 40).toFloat(); setStroke(Ui.dp(this@MainActivity, 1), Ui.BORDER) }
+            elevation = Ui.dp(this@MainActivity, 8).toFloat()
         }
-        root.addView(bar)
-        setContentView(root)
+        Tab.values().forEach { t ->
+            val v = ImageView(this).apply {
+                setImageResource(t.icon); contentDescription = t.title; isClickable = true
+                val pad = Ui.dp(this@MainActivity, 14); setPadding(pad, pad, pad, pad)
+                setOnClickListener { tab = t; inSettings = false; render() }
+            }
+            navViews[t] = v
+            pill.addView(v, LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)).apply { marginStart = Ui.dp(this@MainActivity, 4); marginEnd = Ui.dp(this@MainActivity, 4) })
+        }
+        root.addView(pill, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(this@MainActivity, 4); bottomMargin = Ui.dp(this@MainActivity, 14) })
+        frame = FrameLayout(this).apply { addView(root, FrameLayout.LayoutParams(-1, -1)) }
+        setContentView(frame)
         maybeIntro()
     }
 
@@ -108,8 +146,10 @@ class MainActivity : Activity() {
     private fun tickUi() {
         val d = data ?: return
         val now = System.currentTimeMillis()
-        clockView?.text = Format.date(now) + "\n" + Format.timeSeconds(now)
+        timeView?.text = Format.time(now)
         liveStatus?.text = statusLine(d, now)
+        // ring caption/title follow the persisted deadline once a second (cosmetic only)
+        ring?.let { rb -> ringModel(d, now).let { m -> rb.setTitleOnly(m.title) } }
         // The label is cosmetic; the engine decides from the persisted deadline.
         if (panel.tick(now, d.evening?.rev)) g.run { g.coordinator.onTrigger("ui_deadline") }
     }
@@ -121,7 +161,7 @@ class MainActivity : Activity() {
 
     /** Confirm / Verify areas: a status header plus the shared panel, always rendered from the persisted record. */
     private fun stagePage(d: HomeData, title: String, build: (LinearLayout) -> Unit) {
-        add(Ui.label(this, title, 22f, Ui.INK, true))
+        add(Ui.label(this, title, 14f, Ui.MUTED, true), 0, 8)
         val status = Ui.card(this)
         liveStatus = Ui.label(this, statusLine(d, System.currentTimeMillis()), 16f, statusColor(d.evening), true)
         status.addView(liveStatus)
@@ -135,11 +175,23 @@ class MainActivity : Activity() {
 
     private fun render() {
         val d = data ?: return
-        nav.forEach { (t, b) -> val on = t == tab && !inSettings; b.setTextColor(if (on) Ui.BLUE else Ui.MUTED); b.alpha = if (on) 1f else 0.8f }
+        navViews.forEach { (t, v) ->
+            val on = t == tab && !inSettings
+            v.background = if (on) Ui.circle(this, Ui.CORAL, 56) else null
+            v.setColorFilter(if (on) Color.WHITE else Ui.MUTED)
+            v.isSelected = on
+        }
+        greetingView?.text = if (inSettings) "Settings" else when (tab) {
+            Tab.DASHBOARD -> greeting(System.currentTimeMillis())
+            Tab.CONFIRM -> "Confirm tap-out"
+            Tab.VERIFY -> "Verify"
+            Tab.CHECKS -> "Checks & history"
+        }
+        subtitleView?.text = if (inSettings) "Schedule, alerts and reliability" else headline(d)
         val keepScroll = scroll.scrollY
-        content.removeAllViews(); clockView = null; liveStatus = null; panel.reset()
+        content.removeAllViews(); clockView = null; liveStatus = null; timeView = null; ring = null; panel.reset()
         if (inSettings) {
-            add(Ui.button(this, "< Back", Color.TRANSPARENT, Ui.BLUE, heightDp = 48, sp = 16f) { inSettings = false; render() })
+            add(Ui.button(this, "Back", Ui.CORAL_SOFT, Ui.CORAL, heightDp = 44, sp = 15f) { inSettings = false; render() })
             settings(d)
         } else when (tab) {
             Tab.DASHBOARD -> home(d)
@@ -168,50 +220,163 @@ class MainActivity : Activity() {
         return if (t == null) "IDLE - evening reminder is disabled" else "IDLE - next evening reminder ${Format.dateTime(t)} (${Format.relative(t - now)})"
     }
 
+    private fun greeting(now: Long): String = when (Format.hourOfDay(now)) { in 5..11 -> "Good morning"; in 12..16 -> "Good afternoon"; else -> "Good evening" }
+
+    private fun headline(d: HomeData): String {
+        val r = d.evening?.takeIf { it.kind != Kind.MORNING }
+        return when (r?.state) {
+            State.FIRST_REMINDER_PENDING, State.RECOVERY -> "Your tap-out needs confirmation"
+            State.WAITING_FOR_SECOND_CONFIRMATION -> "Verification opens soon"
+            State.SECOND_CHECK_DUE -> "Did you tap out? Verify now"
+            State.COMPLETED -> "Today is confirmed. Nice work"
+            State.EXPIRED -> "Last workflow was missed"
+            else -> "Your attendance guardian"
+        }
+    }
+
+    private data class RingModel(val title: String, val caption: String, val color: Int, val pulse: Boolean, val target: Tab?, val desc: String)
+
+    /** Derived only from the persisted record: the ring never decides anything, it only points at the screen that does. */
+    private fun ringModel(d: HomeData, now: Long): RingModel {
+        val r = d.evening?.takeIf { it.kind != Kind.MORNING }
+        return when (Presentation.ring(r, now)) {
+            RingKind.TAP_OUT -> RingModel("Tap out", "then confirm", Ui.CORAL, true, Tab.CONFIRM, "Tap out needs confirmation. Double tap to open the confirmation screen.")
+            RingKind.COUNTDOWN -> {
+                val left = (r?.secondDeadlineAt ?: now) - now
+                RingModel(Format.countdown(left), "until verification", Ui.AMBER, false, Tab.VERIFY, "Verification opens in ${Format.countdown(left)}. Double tap to open.")
+            }
+            RingKind.VERIFY_READY -> RingModel("Verify", "ready now", Ui.CORAL, true, Tab.VERIFY, "Verification is ready. Double tap to open.")
+            RingKind.VERIFY_DUE -> RingModel("Verify", "did you tap out?", Ui.CORAL, true, Tab.VERIFY, "Second check is due. Double tap to answer.")
+            RingKind.DONE -> RingModel("Done", "confirmed twice", Ui.GREEN, false, null, "Today's tap-out is confirmed twice.")
+            RingKind.MISSED -> RingModel("Missed", "day closed", Ui.DARK_RED, false, Tab.CHECKS, "Today's workflow was missed. Double tap to see history.")
+            RingKind.IDLE -> RingModel("All set", d.plan.eveningStartAt?.let { "next ${Format.time(it)}" } ?: "reminder off", Color.parseColor("#8C8791"), false, null, "No tap-out is pending.")
+        }
+    }
+
     private fun home(d: HomeData) {
         val now = System.currentTimeMillis()
-        val clockCard = Ui.card(this)
-        clockView = Ui.label(this, Format.date(now) + "\n" + Format.timeSeconds(now), 26f, Ui.INK, true)
-        clockCard.addView(clockView)
-        clockCard.addView(Ui.label(this, "Device time zone: ${d.zoneId}", 13f, Ui.MUTED))
-        add(clockCard)
+        // big clock, as in the reference
+        timeView = Ui.label(this, Format.time(now), 52f, Ui.INK).apply {
+            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); gravity = Gravity.CENTER_HORIZONTAL
+        }
+        add(timeView!!, 4, 0)
+        add(Ui.label(this, Format.dayLine(now), 15f, Ui.MUTED, center = true), 0, 8)
 
-        val ev = Ui.card(this)
-        ev.addView(Ui.label(this, "Evening tap-out (${Format.minuteOfDay(d.settings.eveningMinute)})", 14f, Ui.MUTED, true))
-        liveStatus = Ui.label(this, statusLine(d, now), 19f, statusColor(d.evening), true)
-        ev.addView(liveStatus, Ui.lp(this, 4, 8))
+        val m = ringModel(d, now)
+        val rb = RingButton(this).also { ring = it }
+        rb.bind(m.title, m.caption, m.color, m.pulse, m.desc)
+        rb.setOnClickListener {
+            if (m.target != null) { tab = m.target; render() }
+            else Toast.makeText(this, d.plan.eveningStartAt?.let { "Next evening reminder ${Format.dateTime(it)}" } ?: "Nothing pending.", Toast.LENGTH_SHORT).show()
+        }
+        content.addView(rb, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(this@MainActivity, 4); bottomMargin = Ui.dp(this@MainActivity, 8) })
+
+        // three stats like Check in / Check out / Total
+        val ev = d.evening?.takeIf { it.kind != Kind.MORNING && !it.isTest }
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun stat(icon: Int, value: String?, label: String) {
+            val done = value != null
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+            col.addView(ImageView(this).apply {
+                setImageResource(icon); setColorFilter(if (done) Ui.GREEN else Ui.CORAL)
+                val pad = Ui.dp(this@MainActivity, 10); setPadding(pad, pad, pad, pad)
+                background = Ui.circle(this@MainActivity, if (done) Ui.GREEN_SOFT else Ui.CORAL_SOFT, 48)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)))
+            col.addView(Ui.label(this, value ?: "--:--", 17f, Ui.INK, true, true), Ui.lp(this, 6, 0))
+            col.addView(Ui.label(this, label, 13f, Ui.MUTED, center = true))
+            col.contentDescription = "$label: ${value ?: "not yet"}"
+            stats.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        stat(R.drawable.ic_schedule, ev?.startedAt?.let { Format.time(it) }, "Reminder")
+        stat(R.drawable.ic_nav_confirm, ev?.firstConfirmedAt?.let { Format.time(it) }, "Confirmed")
+        stat(R.drawable.ic_nav_verify, ev?.secondConfirmedAt?.let { Format.time(it) }, "Verified")
+        add(stats, 4, 16)
+
+        weekStrip(d, now)
+
+        // today's status
+        val st = Ui.card(this)
+        st.addView(Ui.label(this, "Today's tap-out  ·  ${Format.minuteOfDay(d.settings.eveningMinute)}", 13f, Ui.MUTED, true))
+        liveStatus = Ui.label(this, statusLine(d, now), 18f, statusColor(d.evening), true)
+        st.addView(liveStatus, Ui.lp(this, 4, 4))
         val active = d.evening?.takeIf { !it.state.isTerminal && it.kind != Kind.MORNING }
-        if (active != null) ev.addView(Ui.button(this, "OPEN REMINDER SCREEN", Ui.RED) {
+        if (active != null) st.addView(Ui.button(this, "Open reminder screen", Ui.CORAL) {
             startActivity(Intent(this, ReminderActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
-        })
-        add(ev)
+        }, Ui.lp(this, 8, 0))
+        add(st)
+
+        // next reminder
+        val nx = Ui.card(this)
+        nx.addView(Ui.label(this, "Next reminder", 13f, Ui.MUTED, true))
+        val lines = mutableListOf<String>()
+        d.plan.eveningStartAt?.let { lines += "Evening tap-out  ·  ${Format.dateTime(it)}  (${Format.relative(it - now)})" }
+        d.plan.morningStartAt?.let { lines += "Morning check-in  ·  ${Format.dateTime(it)}" }
+        active?.nextAlertAt?.let { lines.add(0, "Follow-up alert  ·  ${Format.timeSeconds(it)}  (${Format.relative(it - now)})") }
+        if (active?.state == State.WAITING_FOR_SECOND_CONFIRMATION) active.secondDeadlineAt?.let { lines.add(0, "Verification opens  ·  ${Format.timeSeconds(it)}") }
+        nx.addView(Ui.label(this, if (lines.isEmpty()) "Reminders are turned off in Settings." else lines.joinToString("\n"), 16f, Ui.INK), Ui.lp(this, 4, 0))
+        add(nx)
 
         val mo = Ui.card(this)
-        mo.addView(Ui.label(this, "Morning tap-in (${Format.minuteOfDay(d.settings.morningMinute)})", 14f, Ui.MUTED, true))
-        val m = d.morning
+        mo.addView(Ui.label(this, "Morning check-in  ·  ${Format.minuteOfDay(d.settings.morningMinute)}", 13f, Ui.MUTED, true))
+        val mr = d.morning
         val mText = when {
-            m == null -> d.plan.morningStartAt?.let { "Next reminder ${Format.dateTime(it)}" } ?: "Disabled"
-            m.state == State.MORNING_ACKNOWLEDGED -> "You said you tapped in (${Format.time(m.endedAt ?: 0)}). Not verified with the attendance system."
-            m.state == State.MORNING_NOTIFIED -> "Reminder sent at ${Format.time(m.startedAt)}: have you completed your tap-in?"
-            else -> Format.stateLabel(m)
+            mr == null -> d.plan.morningStartAt?.let { "Next reminder ${Format.dateTime(it)}" } ?: "Disabled"
+            mr.state == State.MORNING_ACKNOWLEDGED -> "You said you tapped in (${Format.time(mr.endedAt ?: 0)}). Not verified with the attendance system."
+            mr.state == State.MORNING_NOTIFIED -> "Reminder sent at ${Format.time(mr.startedAt)}: have you completed your tap-in?"
+            else -> Format.stateLabel(mr)
         }
-        mo.addView(Ui.label(this, mText, 17f, Ui.INK), Ui.lp(this, 4, 8))
-        if (m?.state == State.MORNING_NOTIFIED) mo.addView(Ui.button(this, "I've tapped in", Ui.GREEN) { g.call({ g.coordinator.acknowledgeMorning(m.dateKey) }) { } }, Ui.lp(this, 0, 8))
+        mo.addView(Ui.label(this, mText, 16f, Ui.INK), Ui.lp(this, 4, 0))
+        if (mr?.state == State.MORNING_NOTIFIED) mo.addView(Ui.button(this, "I've tapped in", Ui.GREEN) { g.call({ g.coordinator.acknowledgeMorning(mr.dateKey) }) { } }, Ui.lp(this, 8, 0))
         add(mo)
 
         val rel = Ui.card(this)
         val diags = Reliability.assess(d.caps)
         val bad = diags.count { it.severity != Severity.OK }
-        rel.addView(Ui.label(this, "Permissions & reliability", 14f, Ui.MUTED, true))
-        rel.addView(Ui.label(this, if (bad == 0) "All checks passed." else "$bad item(s) need attention.", 17f, if (bad == 0) Ui.GREEN else Ui.AMBER, true), Ui.lp(this, 4, 4))
-        diags.forEach { rel.addView(Ui.label(this, "${icon(it.severity)}  ${it.title}", 15f, Ui.INK), Ui.lp(this, 2, 2)) }
-        rel.addView(Ui.button(this, if (bad == 0) "View details" else "FIX NOW", if (bad == 0) Ui.BLUE else Ui.AMBER) { tab = Tab.CHECKS; render() }, Ui.lp(this, 10, 0))
+        rel.addView(Ui.label(this, "System readiness", 13f, Ui.MUTED, true))
+        rel.addView(Ui.label(this, if (bad == 0) "All checks passed" else "$bad item(s) need attention", 17f, if (bad == 0) Ui.GREEN else Ui.AMBER, true), Ui.lp(this, 4, 4))
+        diags.forEach { rel.addView(Ui.label(this, "${icon(it.severity)}  ${it.title}", 15f, when (it.severity) { Severity.OK -> Ui.INK; Severity.WARN -> Ui.AMBER; Severity.ERROR -> Ui.CORAL }), Ui.lp(this, 2, 2)) }
+        rel.addView(Ui.button(this, if (bad == 0) "View details" else "Fix now", if (bad == 0) Ui.CORAL_SOFT else Ui.CORAL, if (bad == 0) Ui.CORAL else Color.WHITE) { tab = Tab.CHECKS; render() }, Ui.lp(this, 10, 0))
         add(rel)
 
-        add(Ui.button(this, "Test the reminder now", Ui.RED) { startTest() })
-        add(Ui.button(this, "Settings", Ui.BLUE) { inSettings = true; render() })
-        add(Ui.button(this, "Checks & history", Ui.BLUE) { tab = Tab.CHECKS; render() })
-        add(Ui.label(this, "TapOut Guardian only records what you tell it. It cannot read your attendance system, and Android does not let an ordinary app lock the phone. See Checks.", 13f, Ui.MUTED))
+        add(Ui.button(this, "Test the reminder now", Color.TRANSPARENT, Ui.CORAL, stroke = Ui.CORAL) { startTest() })
+        add(Ui.label(this, "TapOut Guardian only records what you tell it. It cannot read your attendance system, and Android does not let an ordinary app lock the phone. See Checks.", 13f, Ui.MUTED), 4, 16)
+    }
+
+    /** Mon-Sun strip. Dots come from persisted evening records: green confirmed twice, coral missed, amber in progress. */
+    private fun weekStrip(d: HomeData, now: Long) {
+        val zone = java.util.TimeZone.getDefault().toZoneId()
+        val today = java.time.LocalDate.now(zone)
+        val monday = today.with(java.time.DayOfWeek.MONDAY)
+        val byDate = d.recent.filter { it.kind == Kind.EVENING }.associateBy { it.dateKey }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; clipChildren = false }
+        for (i in 0..6) {
+            val day = monday.plusDays(i.toLong())
+            val isToday = day == today
+            val rec = byDate[day.toString()]
+            val chip = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+                val v = Ui.dp(this@MainActivity, 8); setPadding(0, v, 0, v)
+                background = GradientDrawable().apply {
+                    setColor(if (isToday) Ui.CORAL else Color.WHITE); cornerRadius = Ui.dp(this@MainActivity, 22).toFloat()
+                    if (!isToday) setStroke(Ui.dp(this@MainActivity, 1), Ui.BORDER)
+                }
+                if (isToday) elevation = Ui.dp(this@MainActivity, 4).toFloat()
+            }
+            val fg = if (isToday) Color.WHITE else if (day.isAfter(today)) Ui.MUTED else Ui.INK
+            chip.addView(Ui.label(this, day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()), 12f, fg, center = true))
+            chip.addView(Ui.label(this, day.dayOfMonth.toString(), 17f, fg, true, true), Ui.lp(this, 2, 4))
+            val dot = Presentation.dot(rec)
+            val dotColor = when (dot) {
+                DayDot.NONE -> Color.TRANSPARENT
+                else -> if (isToday) Color.WHITE else when (dot) { DayDot.DONE -> Ui.GREEN; DayDot.MISSED -> Ui.CORAL; else -> Ui.AMBER }
+            }
+            chip.addView(View(this).apply { background = Ui.circle(this@MainActivity, dotColor, 6) }, LinearLayout.LayoutParams(Ui.dp(this, 6), Ui.dp(this, 6)))
+            val status = when (dot) { DayDot.DONE -> "confirmed"; DayDot.MISSED -> "missed"; DayDot.NONE -> "no workflow"; DayDot.IN_PROGRESS -> "in progress" }
+            chip.contentDescription = "${day.dayOfWeek} ${day.dayOfMonth}: $status"
+            row.addView(chip, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = Ui.dp(this@MainActivity, 3); marginEnd = Ui.dp(this@MainActivity, 3) })
+        }
+        add(row, 0, 16)
     }
 
     private fun statusColor(r: WorkflowRecord?) = when (r?.state) {
@@ -222,7 +387,7 @@ class MainActivity : Activity() {
         else -> Ui.RED
     }
 
-    private fun icon(s: Severity) = when (s) { Severity.OK -> "[OK]"; Severity.WARN -> "[!]"; Severity.ERROR -> "[X]" }
+    private fun icon(s: Severity) = when (s) { Severity.OK -> "\u2713"; Severity.WARN -> "!"; Severity.ERROR -> "\u2715" }
 
     private fun startTest() {
         g.call({ g.coordinator.startTest() }) { res ->
@@ -249,7 +414,7 @@ class MainActivity : Activity() {
                 State.EXPIRED -> (if (r.kind == Kind.MORNING) "NOT ACKNOWLEDGED" else "MISSED / INTERRUPTED") to Ui.RED
                 else -> "IN PROGRESS: ${Format.stateLabel(r)}" to Ui.AMBER
             }
-            card.addView(Ui.label(this, badge, 14f, color, true), Ui.lp(this, 2, 6))
+            card.addView(Ui.chip(this, badge, when (color) { Ui.GREEN -> Ui.GREEN_SOFT; Ui.AMBER -> Ui.AMBER_SOFT; else -> Ui.CORAL_SOFT }, color), LinearLayout.LayoutParams(-2, -2).apply { topMargin = Ui.dp(this@MainActivity, 6); bottomMargin = Ui.dp(this@MainActivity, 6) })
             val lines = mutableListOf("Reminder started: ${Format.dateTime(r.startedAt)}", "Reminders sent: ${r.alertCount}")
             if (r.kind != Kind.MORNING) {
                 r.firstConfirmedAt?.let { lines += "First confirmation: ${Format.time(it)}" + if (r.confirmCount > 1) " (${r.confirmCount} attempts)" else "" }
@@ -293,6 +458,15 @@ class MainActivity : Activity() {
             c.addView(switchRow("Alarm sound", s.soundEnabled) { save { st -> st.copy(soundEnabled = it) } })
             c.addView(switchRow("Vibration", s.vibrateEnabled) { save { st -> st.copy(vibrateEnabled = it) } })
             c.addView(Ui.label(this, "Sound and vibration are played by Android's notification channel (alarm audio stream), so Do Not Disturb 'alarms' rules and your system volume apply.", 13f, Ui.MUTED))
+        }
+        section("Reliability") { c ->
+            val items = Reliability.assess(d.caps)
+            val bad = items.count { it.severity != Severity.OK }
+            c.addView(Ui.label(this, if (bad == 0) "Everything Android needs for on-time reminders is enabled." else "$bad item(s) can make reminders late or silent.", 15f, if (bad == 0) Ui.GREEN else Ui.AMBER, true))
+            items.filter { it.severity != Severity.OK && it.actionId != null && it.actionId != "KIOSK_INFO" }.forEach { it ->
+                c.addView(Ui.button(this, actionLabel(it.actionId!!), Ui.CORAL_SOFT, Ui.CORAL, heightDp = 48, sp = 15f) { fix(it.actionId, d) }, Ui.lp(this, 8, 0))
+            }
+            c.addView(Ui.button(this, "Open all checks", Ui.CORAL, heightDp = 48, sp = 15f) { inSettings = false; tab = Tab.CHECKS; render() }, Ui.lp(this, 8, 0))
         }
         section("Attendance app") { c ->
             val field = EditText(this).apply {
@@ -348,7 +522,7 @@ class MainActivity : Activity() {
     }
 
     private fun timeRow(title: String, minute: Int, change: (Int) -> Unit): View {
-        val b = Ui.button(this, Format.minuteOfDay(minute), Ui.BLUE, heightDp = 48, sp = 16f) {
+        val b = Ui.button(this, Format.minuteOfDay(minute), Ui.CORAL_SOFT, Ui.CORAL, heightDp = 48, sp = 16f) {
             TimePickerDialog(this, { _, h, m -> change(h * 60 + m) }, minute / 60, minute % 60, false).show()
         }
         b.contentDescription = "$title: ${Format.minuteOfDay(minute)}. Tap to change."
@@ -357,8 +531,8 @@ class MainActivity : Activity() {
 
     private fun stepper(title: String, value: Int, unit: String, min: Int, max: Int, change: (Int) -> Unit): View {
         val v = Ui.label(this, "$value $unit".trim(), 16f, Ui.INK, true).apply { gravity = Gravity.CENTER; minWidth = Ui.dp(this@MainActivity, 64) }
-        val minus = Ui.button(this, "-", Ui.BLUE, heightDp = 48, sp = 20f) { if (value > min) change(value - 1) }
-        val plus = Ui.button(this, "+", Ui.BLUE, heightDp = 48, sp = 20f) { if (value < max) change(value + 1) }
+        val minus = Ui.button(this, "-", Ui.CORAL_SOFT, Ui.CORAL, heightDp = 48, sp = 20f) { if (value > min) change(value - 1) }
+        val plus = Ui.button(this, "+", Ui.CORAL_SOFT, Ui.CORAL, heightDp = 48, sp = 20f) { if (value < max) change(value + 1) }
         minus.contentDescription = "Decrease $title"; plus.contentDescription = "Increase $title"
         listOf(minus, plus).forEach { it.minWidth = Ui.dp(this, 52); it.minimumWidth = Ui.dp(this, 52) }
         return Ui.row(this, Ui.weight(Ui.label(this, title, 16f, Ui.INK)), minus, v, plus).apply { minimumHeight = Ui.dp(this@MainActivity, 56) }
@@ -463,21 +637,40 @@ Without a device owner, enabling the switch only asks Android for screen pinning
 
     // ------------------------------------------------------------------ first-run explanation
 
+    /** First launch only: a short branded welcome (the "splash") that also explains the permissions before asking for them. */
     private fun maybeIntro() {
         val prefs = getSharedPreferences("ui", Context.MODE_PRIVATE)
         if (prefs.getBoolean("intro_done", false)) return
-        AlertDialog.Builder(this).setTitle("Before we start")
-            .setMessage("TapOut Guardian keeps reminding you each evening until you have confirmed your tap-out twice.\n\n" +
-                "- Notifications: required to show the reminder.\n" +
-                "- Alarms & reminders: lets follow-up reminders fire exactly on time.\n" +
-                "- Full-screen alerts: lets the reminder open over the lock screen.\n\n" +
-                "No accessibility, overlay or device-admin permission is used. Android still lets you leave the app; see the Checks tab for what this device allows.")
-            .setCancelable(false)
-            .setPositiveButton("Continue") { _, _ ->
-                prefs.edit().putBoolean("intro_done", true).putBoolean("asked_notif", true).apply()
-                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-                }
-            }.show()
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setBackgroundColor(Ui.PAGE)
+            val p = Ui.dp(this@MainActivity, 28); setPadding(p, p * 2, p, p)
+            isClickable = true
+        }
+        overlay.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+        overlay.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_logo); setColorFilter(Color.WHITE)
+            val pad = Ui.dp(this@MainActivity, 28); setPadding(pad, pad, pad, pad)
+            background = Ui.circle(this@MainActivity, Ui.CORAL, 120); elevation = Ui.dp(this@MainActivity, 10).toFloat()
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(Ui.dp(this, 120), Ui.dp(this, 120)))
+        overlay.addView(Ui.label(this, "Attendance made effortless", 30f, Ui.INK, true, true), Ui.lp(this, 28, 12))
+        overlay.addView(Ui.label(this, "TapOut Guardian keeps reminding you each evening until you have confirmed your tap-out twice. Everything stays on this phone.", 16f, Ui.MUTED, center = true), Ui.lp(this, 0, 16))
+        overlay.addView(Ui.tint(this, Ui.CORAL_SOFT).apply {
+            addView(Ui.label(this@MainActivity, "Notifications show the reminder. Alarms & reminders make follow-ups exact. Full-screen alerts open it over the lock screen. No accessibility, overlay or device-admin access is used.", 14f, Ui.INK))
+        }, Ui.lp(this, 0, 12))
+        val dots = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        for (i in 0 until 5) dots.addView(View(this).apply {
+            background = GradientDrawable().apply { setColor(if (i == 2) Ui.CORAL else Color.parseColor("#D9D4D0")); cornerRadius = Ui.dp(this@MainActivity, 4).toFloat() }
+        }, LinearLayout.LayoutParams(Ui.dp(this, if (i == 2) 22 else 8), Ui.dp(this, 8)).apply { marginStart = Ui.dp(this@MainActivity, 4); marginEnd = Ui.dp(this@MainActivity, 4) })
+        overlay.addView(dots, Ui.lp(this, 8, 16))
+        overlay.addView(View(this), LinearLayout.LayoutParams(-1, 0, 1f))
+        overlay.addView(Ui.button(this, "Get started", Ui.CORAL, heightDp = 60, sp = 18f) {
+            prefs.edit().putBoolean("intro_done", true).putBoolean("asked_notif", true).apply()
+            frame.removeView(overlay)
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+            }
+        }, Ui.lp(this, 0, 8))
+        frame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
     }
 }

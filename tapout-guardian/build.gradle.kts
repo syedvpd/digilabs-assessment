@@ -63,7 +63,7 @@ fun aapt2LinkTask(name: String, debuggable: Boolean) = tasks.register<Exec>(name
         "$toolsDir/aapt2", "link", "-o", out.get().asFile.path, "-I", androidJar.path,
         "--manifest", "src/main/AndroidManifest.xml",
         "--min-sdk-version", "26", "--target-sdk-version", "34",
-        "--version-code", "1", "--version-name", "1.0.0",
+        "--version-code", providers.gradleProperty("appVersionCode").get(), "--version-name", providers.gradleProperty("appVersionName").get(),
         "--auto-add-overlay", layout.buildDirectory.file("aapt/res.zip").get().asFile.path,
     )
     if (debuggable) args += listOf("--debug-mode", "--java", gen.get().asFile.path)

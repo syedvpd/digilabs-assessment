@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_bg">#7F1D1D</color>
+    <color name="launcher_bg">#D2402E</color>
+    <color name="page">#F5F3F0</color>
+    <color name="urgent">#A8321F</color>
 </resources>
