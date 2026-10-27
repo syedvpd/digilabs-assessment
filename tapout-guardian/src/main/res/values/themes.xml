@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+    </style>
+    <style name="ReminderTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#7F1D1D</item>
+        <item name="android:navigationBarColor">#7F1D1D</item>
+        <item name="android:windowBackground">#7F1D1D</item>
+    </style>
+</resources>
