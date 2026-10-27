@@ -89,6 +89,14 @@ Morning: `MORNING_NOTIFIED → MORNING_ACKNOWLEDGED | EXPIRED`. Test runs use a 
 
 ---
 
+## Screens (v1.1)
+
+Four areas in the app, all rendered from the persisted record (returning to a screen never resets anything):
+**Dashboard** (status, next reminder, readiness, test) · **Confirm** (Stage 1: open attendance app, I HAVE TAPPED OUT, countdown) · **Verify** (Stage 2: YES is visible but *disabled until the saved deadline*, NOT YET / I FORGOT) · **Checks** (permissions, diagnostics, history, event log; Settings is reachable from here and the Dashboard).
+The full-screen reminder uses the same panel code, so the notification, reminder screen and tabs cannot disagree.
+
+**NOT YET / I FORGOT (restart transition):** `FIRST_PENDING | WAITING | SECOND_CHECK_DUE → RECOVERY`. The old deadline is cancelled (never reused, never silently reset), nothing is completed, the attendance app is opened, and reminders continue. Pressing I HAVE TAPPED OUT in RECOVERY records a *new* first confirmation and a *new* deadline (= that confirmation + delay); only then can Stage 2 be answered.
+
 ## Reliability design
 
 | Concern | How it is handled |
@@ -161,7 +169,7 @@ Supported: Android 8.0 (API 26) to Android 14 (API 34) by design; behaviour on n
 
 ## Tests
 
-`gradle test` runs 50 JVM unit tests (`src/test/kotlin/.../EngineTest.kt`) with a fake clock, fake alarm/notification ports and a **real SQLite engine** (sqlite-jdbc):
+`gradle test` runs 69 JVM unit tests (`EngineTest.kt` and the regression suite `RegressionTest.kt`) with a fake clock, fake alarm/notification ports and a **real SQLite engine** (sqlite-jdbc):
 two-stage confirmation rules, 5-minute deadline from the first confirmation (6:17 → 6:22), duplicate first/second confirmations, "not yet" recovery, escalation grid, bounded snooze, reboot/process-death recovery, late delivery, time-zone and DST handling, forward/backward manual clock changes, permission denial/restoration, dismissed notifications, concurrent commands (16 threads), injected DB failure (rollback), midnight boundary, morning/evening independence, duplicate boot broadcasts, repeated launches, v1→v2 database upgrade and failed-migration rollback, force-stop recovery, kiosk decision logic.
 
 **Not executed / limits of the tests**

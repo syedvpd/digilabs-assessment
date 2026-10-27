@@ -2,9 +2,21 @@ package com.tapoutguardian.core
 
 import kotlin.math.abs
 
-enum class Outcome { APPLIED, DUPLICATE, TOO_EARLY, INVALID_STATE, NOT_FOUND, LIMIT_REACHED, BLOCKED }
+enum class Outcome { APPLIED, DUPLICATE, TOO_EARLY, INVALID_STATE, NOT_FOUND, LIMIT_REACHED, BLOCKED,
+    /** The transaction failed and was rolled back; nothing changed and the user must retry. */
+    ERROR }
 
 data class CommandResult(val outcome: Outcome, val record: WorkflowRecord?)
+
+/**
+ * Whether the Stage-2 "YES, TAP-OUT IS DONE" action may be offered as enabled at [now]. The engine re-checks this against the
+ * persisted deadline inside the transaction, so a stale or manipulated UI can never complete the workflow early.
+ */
+fun WorkflowRecord.secondConfirmEnabled(now: Long): Boolean = when (state) {
+    State.SECOND_CHECK_DUE -> true
+    State.WAITING_FOR_SECOND_CONFIRMATION -> secondDeadlineAt?.let { now >= it } == true
+    else -> false
+}
 
 /** What the platform layer must do loudly right now. Quiet state refreshes are derived from the database. */
 data class AdvanceResult(val alertEvening: Boolean = false, val alertMorning: Boolean = false)
@@ -68,7 +80,13 @@ class WorkflowEngine(private val store: WorkflowStore, private val clock: Clock)
         }
     }
 
-    /** "Not yet / I forgot": keeps the workflow open and restarts escalation. */
+    /**
+     * "Not yet / I forgot". Explicit restart-confirmation transition:
+     *   FIRST_REMINDER_PENDING | WAITING_FOR_SECOND_CONFIRMATION | SECOND_CHECK_DUE  --notYet-->  RECOVERY
+     * RECOVERY clears the second deadline (it can no longer be satisfied), keeps the workflow open, restarts the escalation
+     * grid from "now" and never completes anything. The user must press "I HAVE TAPPED OUT" again, which records a NEW first
+     * confirmation and a NEW deadline (= that confirmation + delay); only then can Stage 2 be answered.
+     */
     fun notYet(dateKey: String, kind: Kind): CommandResult = mutate(dateKey, kind) { cur, now, s ->
         if (cur.kind == Kind.MORNING) return@mutate CommandResult(Outcome.INVALID_STATE, cur)
         when (cur.state) {
@@ -229,7 +247,10 @@ class WorkflowEngine(private val store: WorkflowStore, private val clock: Clock)
         val el = r.confirmElapsed; val boot = r.confirmBootId; val fc = r.firstConfirmedAt
         if (el == null || boot == null || fc == null) return r
         val nowEl = clock.elapsedMillis()
-        if (boot != clock.bootId()) {
+        // elapsedRealtime only ever grows within one boot, so a smaller value proves a reboot even when the platform
+        // could not give us a boot id (it falls back to a constant). Without this a reboot would look like a clock change
+        // and silently push the second-check deadline out.
+        if (boot != clock.bootId() || nowEl < el) {
             // Rebooted: elapsedRealtime restarted, so the persisted wall-clock deadline is the truth.
             return save(r.copy(confirmBootId = clock.bootId(), confirmElapsed = nowEl - (now - fc)))
         }

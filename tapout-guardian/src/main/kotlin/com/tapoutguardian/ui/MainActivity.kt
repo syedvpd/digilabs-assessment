@@ -29,13 +29,15 @@ import com.tapoutguardian.android.Ids
 import com.tapoutguardian.core.*
 
 class MainActivity : Activity() {
-    private enum class Tab(val title: String) { HOME("Home"), HISTORY("History"), SETTINGS("Settings"), CHECKS("Checks") }
+    private enum class Tab(val title: String) { DASHBOARD("Dashboard"), CONFIRM("Confirm"), VERIFY("Verify"), CHECKS("Checks") }
 
     private lateinit var g: Graph
     private lateinit var content: LinearLayout
     private lateinit var scroll: ScrollView
     private val nav = mutableMapOf<Tab, android.widget.Button>()
-    private var tab = Tab.HOME
+    private var tab = Tab.DASHBOARD
+    private var inSettings = false
+    private lateinit var panel: WorkflowPanel
     private var data: HomeData? = null
     private var clockView: TextView? = null
     private var liveStatus: TextView? = null
@@ -49,6 +51,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         g = Graph.get(this)
+        panel = WorkflowPanel(this, g, Scheme.LIGHT) { reload() }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Ui.PAGE) }
         root.addView(Ui.label(this, "TapOut Guardian", 22f, Ui.INK, true).apply {
             setPadding(Ui.dp(this@MainActivity, 16), Ui.dp(this@MainActivity, 14), Ui.dp(this@MainActivity, 16), Ui.dp(this@MainActivity, 10))
@@ -63,7 +66,7 @@ class MainActivity : Activity() {
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.WHITE) }
         Tab.values().forEach { t ->
-            val b = Ui.button(this, t.title, Color.TRANSPARENT, Ui.INK, heightDp = 56, sp = 15f) { tab = t; render() }
+            val b = Ui.button(this, t.title, Color.TRANSPARENT, Ui.INK, heightDp = 56, sp = 15f) { tab = t; inSettings = false; render() }
             nav[t] = b; bar.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
         }
         root.addView(bar)
@@ -107,16 +110,43 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         clockView?.text = Format.date(now) + "\n" + Format.timeSeconds(now)
         liveStatus?.text = statusLine(d, now)
+        // The label is cosmetic; the engine decides from the persisted deadline.
+        if (panel.tick(now, d.evening?.rev)) g.run { g.coordinator.onTrigger("ui_deadline") }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (inSettings) { inSettings = false; render() } else @Suppress("DEPRECATION") super.onBackPressed()
+    }
+
+    /** Confirm / Verify areas: a status header plus the shared panel, always rendered from the persisted record. */
+    private fun stagePage(d: HomeData, title: String, build: (LinearLayout) -> Unit) {
+        add(Ui.label(this, title, 22f, Ui.INK, true))
+        val status = Ui.card(this)
+        liveStatus = Ui.label(this, statusLine(d, System.currentTimeMillis()), 16f, statusColor(d.evening), true)
+        status.addView(liveStatus)
+        add(status)
+        val box = Ui.card(this)
+        build(box)
+        add(box)
     }
 
     // ------------------------------------------------------------------ rendering
 
     private fun render() {
         val d = data ?: return
-        nav.forEach { (t, b) -> b.setTextColor(if (t == tab) Ui.BLUE else Ui.MUTED); b.alpha = if (t == tab) 1f else 0.8f }
+        nav.forEach { (t, b) -> val on = t == tab && !inSettings; b.setTextColor(if (on) Ui.BLUE else Ui.MUTED); b.alpha = if (on) 1f else 0.8f }
         val keepScroll = scroll.scrollY
-        content.removeAllViews(); clockView = null; liveStatus = null
-        when (tab) { Tab.HOME -> home(d); Tab.HISTORY -> history(d); Tab.SETTINGS -> settings(d); Tab.CHECKS -> checks(d) }
+        content.removeAllViews(); clockView = null; liveStatus = null; panel.reset()
+        if (inSettings) {
+            add(Ui.button(this, "< Back", Color.TRANSPARENT, Ui.BLUE, heightDp = 48, sp = 16f) { inSettings = false; render() })
+            settings(d)
+        } else when (tab) {
+            Tab.DASHBOARD -> home(d)
+            Tab.CONFIRM -> stagePage(d, "Stage 1: first confirmation") { box -> panel.stage1(box, d, d.evening) }
+            Tab.VERIFY -> stagePage(d, "Stage 2: second verification") { box -> panel.stage2(box, d, d.evening) }
+            Tab.CHECKS -> { checks(d); history(d) }
+        }
         scroll.post { scroll.scrollTo(0, keepScroll) }
     }
 
@@ -179,8 +209,8 @@ class MainActivity : Activity() {
         add(rel)
 
         add(Ui.button(this, "Test the reminder now", Ui.RED) { startTest() })
-        add(Ui.button(this, "Settings", Ui.BLUE) { tab = Tab.SETTINGS; render() })
-        add(Ui.button(this, "History", Ui.BLUE) { tab = Tab.HISTORY; render() })
+        add(Ui.button(this, "Settings", Ui.BLUE) { inSettings = true; render() })
+        add(Ui.button(this, "Checks & history", Ui.BLUE) { tab = Tab.CHECKS; render() })
         add(Ui.label(this, "TapOut Guardian only records what you tell it. It cannot read your attendance system, and Android does not let an ordinary app lock the phone. See Checks.", 13f, Ui.MUTED))
     }
 
@@ -207,7 +237,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------ history
 
     private fun history(d: HomeData) {
-        add(Ui.label(this, "History", 22f, Ui.INK, true))
+        add(Ui.label(this, "History", 22f, Ui.INK, true), 16, 12)
         if (d.recent.isEmpty()) add(Ui.label(this, "Nothing recorded yet. Workflows appear here after the first reminder.", 16f, Ui.MUTED))
         d.recent.forEach { r ->
             val card = Ui.card(this)
@@ -374,6 +404,7 @@ class MainActivity : Activity() {
             "- After 'Force stop', Android cancels all alarms and blocks every receiver until you open the app once more.\n" +
             "- The app records your own confirmations; it cannot verify them with the attendance system.", 14f, Ui.INK))
         add(info)
+        add(Ui.button(this, "Settings", Ui.BLUE) { inSettings = true; render() })
     }
 
     private fun actionLabel(id: String) = when (id) {

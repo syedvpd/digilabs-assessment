@@ -47,7 +47,7 @@ class Coordinator(
     fun onNotificationDismissed() = sync(null)
 
     private fun command(block: () -> CommandResult): CommandResult {
-        val res = try { block() } catch (e: Exception) { log("command failed, state unchanged: $e"); CommandResult(Outcome.INVALID_STATE, null) }
+        val res = try { block() } catch (e: Exception) { log("command failed, state unchanged: $e"); CommandResult(Outcome.ERROR, null) }
         val startedTest = res.outcome == Outcome.APPLIED && res.record?.isTest == true && res.record.state == State.FIRST_REMINDER_PENDING
         sync(if (startedTest) AdvanceResult(alertEvening = true) else null)
         return res
